@@ -215,4 +215,21 @@ class Dram_Request{
         string _Dram_addr;
 };
 
+class L2_Request{
+    public:
+        L2_Request(Mv_Fifo_Item mv_fifo_item, int start_cycle){
+            _mv_fifo_item._b_idx = mv_fifo_item._b_idx;
+            _mv_fifo_item._width = mv_fifo_item._width;
+            _mv_fifo_item._height = mv_fifo_item._height;
+            _mv_fifo_item._src_x = mv_fifo_item._src_x;
+            _mv_fifo_item._src_y = mv_fifo_item._src_y;
+            _mv_fifo_item._ref_idx = mv_fifo_item._ref_idx;
+            _mv_fifo_item._dst_x = mv_fifo_item._dst_x;
+            _mv_fifo_item._dst_y = mv_fifo_item._dst_y;
+            _return_cycle = start_cycle + 1;
+        }
+        Mv_Fifo_Item _mv_fifo_item;
+        int _return_cycle;
+};
+
 
