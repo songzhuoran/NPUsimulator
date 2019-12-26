@@ -38,14 +38,20 @@ class MC_Cache{
                 _flag_hit[i] = 1;
             }
         }
-        void replace_data(int cache_bank_x_id, int cache_bank_y_id, int cache_set_x_id, int cache_set_y_id, int tag_x, int tag_y){
+        void replace_data(Data_Info data_info_x, Data_Info data_info_y){
+            int tag_x = data_info_x._i_tag;
+            int tag_y = data_info_y._i_tag;
+            int index_x = data_info_x._i_index;
+            int index_y = data_info_y._i_index;
+            int bank_x = data_info_x._i_b;
+            int bank_y = data_info_y._i_b;
             int road_x = 0;
             int road_y = 0;
             int temp_frequency = -1;
             int temp_axis = 0;
             for(;road_x<_cache_road_x;road_x++){
                 for(;road_y<_cache_road_y;road_y++){
-                    int axis = road_y + road_x * _cache_road_y + cache_set_y_id * _cache_road_x * _cache_road_y  + cache_set_x_id * _cache_set_y * _cache_road_x * _cache_road_y + cache_bank_y_id * _cache_set_x * _cache_set_y * _cache_road_x * _cache_road_y + cache_bank_x_id * _cache_bank_y * _cache_set_x * _cache_set_y * _cache_road_x * _cache_road_y;
+                    int axis = road_y + road_x * _cache_road_y + index_y * _cache_road_x * _cache_road_y  + index_x * _cache_set_y * _cache_road_x * _cache_road_y + bank_y * _cache_set_x * _cache_set_y * _cache_road_x * _cache_road_y + bank_x * _cache_bank_y * _cache_set_x * _cache_set_y * _cache_road_x * _cache_road_y;
                     if(_use_frequency[axis]>=temp_frequency){
                         temp_frequency = _use_frequency[axis];
                         temp_axis = axis;
@@ -85,8 +91,8 @@ class MC_Cache{
                     }
                 }
             }
-            if(flag_hit == true)
-                cout << "hit" << endl;
+            // if(flag_hit == 1)
+            //     cout << "hit" << endl;
             return flag_hit;
         }
         int _cache_bank_x;
