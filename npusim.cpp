@@ -1,12 +1,8 @@
 #include "npusim.h"
 
 // init Npusim
-Npusim::Npusim(int _num_frame){
-    num_frame = _num_frame;
+Npusim::Npusim(){
     systimer = 0;
-    Valid_NN_Frame.assign(num_frame, 0);
-    Valid_MC_Frame.assign(num_frame, 0);
-    Valid_Decode_Frame.assign(num_frame, 0);
     MC_L1_Cache.init_mc_cache(2, 2, 1, 1, 4, 4, 8, 8);
     MC_L2_Cache.init_mc_cache(2, 2, 1, 1, 8, 8, 8, 8);
     systemIniFilename = "system.ini";
@@ -19,14 +15,10 @@ Npusim::Npusim(int _num_frame){
     trans = NULL;
 }
 
-Npusim::Npusim(int _num_frame, MC_Cache _l1_cache, MC_Cache _l2_cache){
-    num_frame = _num_frame;
+Npusim::Npusim(MC_Cache _l1_cache_config, MC_Cache _l2_cache_config){
     systimer = 0;
-    Valid_NN_Frame.assign(num_frame, 0);
-    Valid_MC_Frame.assign(num_frame, 0);
-    Valid_Decode_Frame.assign(num_frame, 0);
-    MC_L1_Cache = _l1_cache;
-    MC_L2_Cache = _l2_cache;
+    MC_L1_Cache = _l1_cache_config;
+    MC_L2_Cache = _l2_cache_config;
     systemIniFilename = "system.ini";
     deviceIniFilename = "ini/DDR3_micron_64M_8B_x4_sg15.ini";
     memorySystem = new MultiChannelMemorySystem(deviceIniFilename, systemIniFilename, "", "", 2048, NULL, NULL);
@@ -35,6 +27,148 @@ Npusim::Npusim(int _num_frame, MC_Cache _l1_cache, MC_Cache _l2_cache){
     write_cb = new Callback<Npusim, void, unsigned, uint64_t, uint64_t>(this, &Npusim::write_complete);
 	memorySystem->RegisterCallbacks(read_cb, write_cb, NULL);
     trans = NULL;
+}
+
+// path - common path(e.g. "/home/liuxueyuan/npusim"), b/p_fname - b/p file path(e.g. "b/test" or "p/test") 
+void Npusim::load_ibp_label(string path, string b_fname, string p_fname, string i_fname=""){
+    string b_path = path + '/' + b_fname;
+    string p_path = path + '/' + p_fname;
+    ifstream b_inFile(b_path.c_str(), ios::in);
+    ifstream p_inFile(p_path.c_str(), ios::in);
+    string b_elem, p_elem;
+    int cntb = 0, cntp = 0, cnti = 0; // calc num of b/p/i frames
+    while (getline(b_inFile, b_elem)){
+        frame_type_maptab[atoi(b_elem.c_str())-1] = B_FRAME;
+        cntb++;
+    }
+    if(!i_fname.empty()){
+        string i_path = path + '/' + i_fname;
+        ifstream i_inFile(i_path.c_str(), ios::in);
+        string i_elem;
+        while(getline(i_inFile, i_elem)){
+            frame_type_maptab[atoi(i_elem.c_str())-1] = I_FRAME;
+            cnti++;
+        }
+        while(getline(p_inFile, p_elem)){
+            frame_type_maptab[atoi(p_elem.c_str())-1] = P_FRAME;
+            cntp++;
+        }
+    }
+    else{
+        while(getline(p_inFile, p_elem)){
+            if(cntp > 0){
+                frame_type_maptab[atoi(p_elem.c_str())-1] = P_FRAME;
+                cntp++;
+            }
+            else{
+                frame_type_maptab[0] = I_FRAME;
+                cnti++;
+            }
+        }
+    }
+    num_frame = cntb + cntp + cnti;
+    Valid_NN_Frame.assign(num_frame, 0);
+    Valid_MC_Frame.assign(num_frame, 0);
+    Valid_Decode_Frame.assign(num_frame, 0);
+}
+
+// load b-frame motion vectors(load mv_table from ffmpeg)
+// remove the case of negative value
+// split block size to 8*8
+void Npusim::load_mvs(string filename){
+    ifstream inFile(filename.c_str(), ios::in);
+    string lineStr;
+    while (getline(inFile, lineStr))
+    {
+        stringstream ss(lineStr);
+        string str;
+        vector<int> lineArray;
+        while (getline(ss, str, ',')) {
+            lineArray.push_back(atoi(str.c_str()));
+        }
+        if (lineArray[6] < 0 || lineArray[7] < 0) continue;  // exclude the case of negative value
+        // 0-idx, 1-ref_idx, 2-width, 3-height, 4-src_x, 5-src_y, 6-dest_x, 7-dest_y
+    
+        for (int i = lineArray[2] - 8; i >= 0; i -= 8) {
+            for (int j = lineArray[3] - 8; j >= 0; j -= 8) {
+                Mv_Fifo_Item temp_item(lineArray[0], 8, 8, lineArray[4] + i, lineArray[5] + j, lineArray[1], lineArray[6] + i, lineArray[7] + j);
+                Mv_Fifo.push_back(temp_item);
+            }
+        }
+    }
+}
+
+bool cmp(const Mv_Fifo_Item& a, const Mv_Fifo_Item& b) {  
+    if (a._src_x != b._src_x)
+        return a._src_x < b._src_x;
+    return a._src_y < b._src_y;
+}
+
+// sort mv_fifo
+void Npusim::sort_mvs(){
+    int preid = -1, curid = 0;
+    vector<Mv_Fifo_Item> temp_fifo, _Mv_Fifo;
+    for(int i=0; i<Mv_Fifo.size(); ++i){
+        curid = Mv_Fifo[i]._b_idx;
+        if(preid != -1 && curid != preid){
+            sort(temp_fifo.begin(), temp_fifo.end(), cmp);
+            _Mv_Fifo.insert(_Mv_Fifo.end(), temp_fifo.begin(), temp_fifo.end());
+            temp_fifo.clear();
+        }
+        temp_fifo.push_back(Mv_Fifo[i]);
+        preid = curid;
+    }
+    Mv_Fifo = _Mv_Fifo;
+}
+
+void Npusim::generate_DAG(){
+    for(int i = 0; i < MAX_SIZE_OF_FTMTAB; i++){
+        graph.visited[i] = 0;
+        for(int j = 0; j < MAX_SIZE_OF_FTMTAB; j++){
+            graph.arc[i][j] = 0;
+        }
+    }
+    for(int i = 0; i < Mv_Fifo.size(); i++){
+        int b_idx = Mv_Fifo[i]._b_idx;
+        int ref_idx = Mv_Fifo[i]._ref_idx;
+        graph.arc[b_idx][ref_idx] = 1;
+    }
+}
+
+void Npusim::decode_order(){
+    int flag;
+    int t = 0;
+    for(int i = 0; i < num_frame; i++){
+        if(graph.visited[i] == 0){
+            flag = 0;
+            for(int j = 0; j < num_frame; j++){
+                if(graph.arc[i][j] == 1){
+                    cout<<"b_idx: "<<i<<endl;
+                    flag = 1;
+                    break;
+                }
+            }
+            if(flag == 1){
+                continue;
+            }
+            else{
+                order[t] = i;
+                for(int h = 0; h < num_frame; h++){
+                    graph.arc[h][i] = 0;
+                }
+                graph.visited[i] = 1;
+                t++;
+                i = 0;
+            }
+        }
+    }
+}
+
+// judge if a frame is bidirectional prediction frame
+void Npusim::judge_bid_pred(){
+    for(vector<Mv_Fifo_Item>::iterator it = Mv_Fifo.begin(); it != Mv_Fifo.end(); ++it){
+        
+    }
 }
 
 // simulate the neural network
@@ -401,7 +535,7 @@ void Npusim::controller(){
         // process I/P frames
         if (!Decode_IP_frame_idx.empty()) {
             int frame_IP_idx = Decode_IP_frame_idx.front();   // current I/P frame
-            FRAME_T frame_IP_type = Frame_type[frame_IP_idx]; // type of I/P frame: I_FRAME / P_FRAME
+            FRAME_T frame_IP_type = frame_type_maptab[frame_IP_idx]; // type of I/P frame: I_FRAME / P_FRAME
             if (Valid_Decode_Frame[frame_IP_idx]) {
                 // I or P frame do nerual network
                 temp_large_NN++;
@@ -426,7 +560,7 @@ void Npusim::controller(){
         // process B frames
         if (!Decode_B_frame_idx.empty()) {
             int frame_B_idx = Decode_B_frame_idx.front();   // current B frame
-            FRAME_T frame_B_type = Frame_type[frame_B_idx]; // type of B frame: B_FRAME
+            FRAME_T frame_B_type = frame_type_maptab[frame_B_idx]; // type of B frame: B_FRAME
             if (Valid_MC_Frame[frame_B_idx]) { 
                 // B frame execute Neural network
                 temp_small_NN++;
@@ -471,113 +605,24 @@ void Npusim::controller(){
     }
 }
 
-// init test case
-void Npusim::sysini(){
-    // init Decode_frame_idx
-    Decode_frame_idx.push_back(0);
-    Decode_frame_idx.push_back(3);
-    Decode_frame_idx.push_back(2);
-    Decode_frame_idx.push_back(1);
-
-    // init Decode_IP_frame_idx
-    Decode_IP_frame_idx.push_back(0);
-    Decode_IP_frame_idx.push_back(3);
-
-    // init Decode_B_frame_idx
-    Decode_B_frame_idx.push_back(2);
-    Decode_B_frame_idx.push_back(1);
-
-    // init Frame_type
-    Frame_type.push_back(I_FRAME);
-    Frame_type.push_back(B_FRAME), Frame_type.push_back(B_FRAME);
-    Frame_type.push_back(P_FRAME);
-
-    // init Mv_fifo
-    Mv_Fifo_Item tmpobj_0(2,8,8,0,0,0,8,2);
-    Mv_Fifo_Item tmpobj_1(2,8,8,0,0,3,1,0);
-    Mv_Fifo_Item tmpobj_2(2,8,8,0,8,0,0,3);
-    Mv_Fifo_Item tmpobj_3(2,8,8,0,8,3,3,8);
-    Mv_Fifo_Item tmpobj_4(2,8,8,0,16,3,4,7);
-    Mv_Fifo_Item tmpobj_5(2,8,8,0,16,0,2,8);
-    Mv_Fifo_Item tmpobj_6(2,8,8,0,24,0,0,6);
-    Mv_Fifo_Item tmpobj_7(2,8,8,0,24,3,6,7);
-    Mv_Fifo_Item tmpobj_8(2,8,8,8,0,0,2,5);
-    Mv_Fifo_Item tmpobj_9(2,8,8,8,0,3,2,0);
-    Mv_Fifo_Item tmpobj_10(2,8,8,8,8,0,4,6);
-    Mv_Fifo_Item tmpobj_11(2,8,8,8,8,3,5,3);
-
-    Mv_Fifo.push_back(tmpobj_0);
-    Mv_Fifo.push_back(tmpobj_1);
-    Mv_Fifo.push_back(tmpobj_2);
-    Mv_Fifo.push_back(tmpobj_3);
-    Mv_Fifo.push_back(tmpobj_4);
-    Mv_Fifo.push_back(tmpobj_5);
-    Mv_Fifo.push_back(tmpobj_6);
-    Mv_Fifo.push_back(tmpobj_7);
-    Mv_Fifo.push_back(tmpobj_8);
-    Mv_Fifo.push_back(tmpobj_9);
-    Mv_Fifo.push_back(tmpobj_10);
-    Mv_Fifo.push_back(tmpobj_11);
-
-    tmpobj_0.init_mv_fifo_item(2,8,8,8,16,0,6,3);
-    tmpobj_1.init_mv_fifo_item(2,8,8,8,16,3,5,1);
-    tmpobj_2.init_mv_fifo_item(2,8,8,8,24,0,8,4);
-    tmpobj_3.init_mv_fifo_item(2,8,8,8,24,3,5,4);
-    tmpobj_4.init_mv_fifo_item(1,8,8,0,0,0,1,7);
-    tmpobj_5.init_mv_fifo_item(1,8,8,0,0,2,6,8);
-    tmpobj_6.init_mv_fifo_item(1,8,8,0,8,3,3,7);
-    tmpobj_7.init_mv_fifo_item(1,8,8,0,8,0,4,0);
-    tmpobj_8.init_mv_fifo_item(1,8,8,0,16,0,0,5);
-    tmpobj_9.init_mv_fifo_item(1,8,8,0,16,2,8,6);
-    tmpobj_10.init_mv_fifo_item(1,8,8,0,24,0,1,3);
-    tmpobj_11.init_mv_fifo_item(1,8,8,0,24,3,2,7);
-
-    Mv_Fifo.push_back(tmpobj_0);
-    Mv_Fifo.push_back(tmpobj_1);
-    Mv_Fifo.push_back(tmpobj_2);
-    Mv_Fifo.push_back(tmpobj_3);
-    Mv_Fifo.push_back(tmpobj_4);
-    Mv_Fifo.push_back(tmpobj_5);
-    Mv_Fifo.push_back(tmpobj_6);
-    Mv_Fifo.push_back(tmpobj_7);
-    Mv_Fifo.push_back(tmpobj_8);
-    Mv_Fifo.push_back(tmpobj_9);
-    Mv_Fifo.push_back(tmpobj_10);
-    Mv_Fifo.push_back(tmpobj_11);
-
-    tmpobj_0.init_mv_fifo_item(1,8,8,8,0,2,6,2);
-    tmpobj_1.init_mv_fifo_item(1,8,8,8,0,3,0,1);
-    tmpobj_2.init_mv_fifo_item(1,8,8,8,8,3,5,6);
-    tmpobj_3.init_mv_fifo_item(1,8,8,8,8,2,3,6);
-    tmpobj_4.init_mv_fifo_item(1,8,8,8,16,0,2,8);
-    tmpobj_5.init_mv_fifo_item(1,8,8,8,16,3,0,5);
-    tmpobj_6.init_mv_fifo_item(1,8,8,8,24,0,8,8);
-    tmpobj_7.init_mv_fifo_item(1,8,8,8,24,2,0,8);
-    tmpobj_8.init_mv_fifo_item(1,8,8,16,0,0,4,5);
-    tmpobj_9.init_mv_fifo_item(1,8,8,16,0,2,6,6);
-    tmpobj_10.init_mv_fifo_item(1,8,8,16,8,0,8,0);
-    tmpobj_11.init_mv_fifo_item(1,8,8,16,8,3,8,8);
-
-    Mv_Fifo.push_back(tmpobj_0);
-    Mv_Fifo.push_back(tmpobj_1);
-    Mv_Fifo.push_back(tmpobj_2);
-    Mv_Fifo.push_back(tmpobj_3);
-    Mv_Fifo.push_back(tmpobj_4);
-    Mv_Fifo.push_back(tmpobj_5);
-    Mv_Fifo.push_back(tmpobj_6);
-    Mv_Fifo.push_back(tmpobj_7);
-    Mv_Fifo.push_back(tmpobj_8);
-    Mv_Fifo.push_back(tmpobj_9);
-    Mv_Fifo.push_back(tmpobj_10);
-    Mv_Fifo.push_back(tmpobj_11);
+void Npusim::test(){
+    cout<<"Mv_Fifo.size = "<<Mv_Fifo.size()<<endl;
+    for(int i=0;i<Mv_Fifo.size();++i){
+        cout<<Mv_Fifo[i]._b_idx<<", "<<Mv_Fifo[i]._width<<", "<<Mv_Fifo[i]._height<<", ";
+        cout<<Mv_Fifo[i]._src_x<<", "<<Mv_Fifo[i]._src_y<<", "<<Mv_Fifo[i]._ref_idx<<", ";
+        cout<<Mv_Fifo[i]._dst_x<<", "<<Mv_Fifo[i]._dst_y<<endl;
+    }
 }
 
-
-
 int main(){
-    Npusim npu(4);
-    npu.sysini();
-    npu.controller();
+    Npusim npu;
+    
+    npu.load_mvs("./mvs/test.csv");
+    npu.generate_DAG();
+    npu.decode_order();
+    for(int i=0;i<6;++i){
+        cout<<npu.order[i]<<" ";
+    }
 
     return 0;
 }
