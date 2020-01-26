@@ -466,6 +466,9 @@ void MemoryController::update()
 		//	assuming simple scheduling at the moment
 		//	will eventually add policies here
 		Transaction *transaction = transactionQueue[i];
+		if(transaction == NULL){
+			cout<<"in MemoryControllder: transactionQueue["<<i<<"] = NULL"<<endl;
+		}
 
 		//map address to rank,bank,row,col
 		unsigned newTransactionChan, newTransactionRank, newTransactionBank, newTransactionRow, newTransactionColumn;
@@ -509,8 +512,6 @@ void MemoryController::update()
 			BusPacket *command = new BusPacket(bpType, transaction->address,
 					newTransactionColumn, newTransactionRow, newTransactionRank,
 					newTransactionBank, transaction->data, dramsim_log);
-
-
 
 			commandQueue.enqueue(ACTcommand);
 			commandQueue.enqueue(command);
@@ -745,6 +746,7 @@ bool MemoryController::addTransaction(Transaction *trans)
 	}
 	else 
 	{
+		cout<<"WillAcceptTrans is NULL"<<endl;
 		return false;
 	}
 }

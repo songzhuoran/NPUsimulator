@@ -1,0 +1,4 @@
+1.l2_cache_sim: each cycle can process four request but only send one request to DRAM. Need to rewrite the "break;"
+2.shifter array: each cycle shifter array can only process one 16*16 data array. So we need to obtain the return cycle of the actual mv_item.
+3.DRAMsim: Need to study how to use dramsim.
+4.Write request to DRAM: including the data from NPU and the mapped buffer

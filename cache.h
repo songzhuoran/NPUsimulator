@@ -2,6 +2,8 @@
 
 #include <string>
 #include <vector>
+
+#include "request.h"
 using namespace std;
 
 class Data_Info{
@@ -20,11 +22,12 @@ class Data_Info{
 class MC_Cache{
     public:
         MC_Cache(){}
-        MC_Cache(int cache_bank_x, int cache_bank_y, int cache_set_x, int cache_set_y, int cache_road_x, int cache_road_y, int cache_line_x, int cache_line_y);
-        void init_mc_cache(int cache_bank_x, int cache_bank_y, int cache_set_x, int cache_set_y, int cache_road_x, int cache_road_y, int cache_line_x, int cache_line_y);
+        MC_Cache(int cache_bank_x, int cache_bank_y, int cache_set_x, int cache_set_y, int cache_road_x, int cache_road_y, int cache_line_x, int cache_line_y, int cache_type);
+        void init_mc_cache(int cache_bank_x, int cache_bank_y, int cache_set_x, int cache_set_y, int cache_road_x, int cache_road_y, int cache_line_x, int cache_line_y, int cache_type);
         void replace_data(Data_Info data_info_x, Data_Info data_info_y);
         void update_frequency();
         bool check_cache_hit(Data_Info data_info_x, Data_Info data_info_y);
+        Data_Info generate_cache_addr(int ref_idx, int x, int axis_type); // generate cache data, including tag, index and bank id
 
         int _cache_bank_x;
         int _cache_bank_y;
@@ -39,4 +42,5 @@ class MC_Cache{
         vector<int> _tag_y;
         vector<int> _use_frequency; //need to init to 0; larger means less use frequency
         vector<int> _flag_hit; //record which cache line is not used, use by replace data; 0: use in this cycle, 1: unuse in this cycle; need to init to 1 at first!
+        int _cache_type; //0:L1 cache; 1: L2 cache
 };
