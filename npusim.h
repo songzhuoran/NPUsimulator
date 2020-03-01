@@ -18,7 +18,10 @@
 #include "IniReader.h"
 
 #include "cache.h"
+#include "neuralNetworkSim.h"
 #define MAX_SIZE_OF_FTMTAB 500
+#define SHIFT_CYCLE 1
+#define POST_MPBCALC_CYCLE 1  // post mapped buffer calc cycle
 
 using namespace std;
 using namespace DRAMSim;
@@ -37,54 +40,74 @@ class Graph {
 class Npusim {
     private:
         int systimer;  // system timer, original name: total_cycle
-        int num_frame; // num of frames
+        int numFrames; // num of frames
+        bool mvFifoTraversalLabel;
         FRAME_T frame_type_maptab[MAX_SIZE_OF_FTMTAB]; // frame type mapping table
-        vector<int> Valid_NN_Frame; // neural network process is completed
-        vector<int> Valid_MC_Frame; // motion compensation process is completed
-        vector<int> Valid_Decode_Frame; // decode process is completed
-        vector<int> Decode_IP_frame_idx; // IP order
-        vector<int> Decode_B_frame_idx; // B order
+        map<int, int> blkInBframe;       // frame_B_idx, remain_nums
+        vector<int> frameValidBuffer;    // neural network process is completed
+        vector<int> frameMcValid;        // motion compensation process is completed
+        queue<int> Decode_IP_frame_idx;  // IP order
+        vector<int> Decode_B_frame_idx;  // B order
+        queue<int> ipNnList;             // IP large NN list
         vector<Request> Pending_request_list; // pending request of DRAM
-        vector<Dram_Request> Dram_Request_list;
-        vector<Mv_Fifo_Item> Mv_Fifo; // need to init!!(including mv_fifo_item)
+        int maxid_dramReqList;
+        vector<pair<string, int> > Dram_request_list;   // hex string
+        vector<Mv_Fifo_Item> Mv_Fifo;    // need to init!!(including mv_fifo_item)
         vector<L2_Request> Pending_L2_request_list; // pending request of L2 cache
-        MC_Cache MC_L1_Cache, MC_L2_Cache;  // L1 cache and L2 cache
+        MC_Cache MC_L1_Cache, MC_L2_Cache; // L1 cache and L2 cache
         // dram sim
         string systemIniFilename;
         string deviceIniFilename;
+        string cacheIniFilename;
         MultiChannelMemorySystem *memorySystem;
-        // TransactionReceiver transactionReceiver;
         Callback_t *read_cb, *write_cb;
         Transaction *trans;
         map<uint64_t, list<uint64_t> > pendingReadRequests; 
 		map<uint64_t, list<uint64_t> > pendingWriteRequests; 
         uint64_t latency;
-        // DAG according to the decode order
-        int order[MAX_SIZE_OF_FTMTAB];   // order[idx] = ord
-        int reorder[MAX_SIZE_OF_FTMTAB]; // 反向order: reorder[ord] = idx
-        Graph graph;
+        
         // Shifter
-        // queue<> q_shifter;
+        queue<pair<Mv_Fifo_Item, int> > q_shifter;  // pair<Mv_Fifo_Item, finish_time>
+        vector<Mv_Fifo_Item> mappedBuffer;
+        queue<pair<Mv_Fifo_Item, int> > q_postMappedBuffer;
+        map<int, list<uint64_t> > pendingWriteReqList;
+        
+        NeuralNetwork largeNet, smallNet;
+        list<uint64_t> pendingLnnReadPerLayer, pendingSnnReadPerLayer;
+        list<uint64_t> pendingLnnWritePerFrame, pendingSnnWritePerFrame;
+        uint64_t lnnWeightStartAddr, snnWeightStartAddr;
+        uint64_t lnnRWStartAddr, snnRWStartAddr;
+        uint64_t ipDecodedFramesAddr, bMcFramesAddr;
+        bool isLargeNetStart, isSmallNetStart;
+        bool isLargeNetOk, isSmallNetOk;
+        bool isLnnLayerOk, isSnnLayerOk;
 
-    public:
-        Npusim();
-        Npusim(MC_Cache _l1_cache_config, MC_Cache _l2_cache_config);
+        // Data loading and preprocessing
         void load_ibp_label(string path, string b_fname, string p_fname, string i_fname);
         void load_mvs(string filename);
-        void sort_mvs();
+        void decode_order();    // generate decode order
+        void sort_mvs();        // sort b-mvs in mvFifo
         void judge_bid_pred();  // judge if a frame is bidirectional prediction frame
-        int neural_network_sim(FRAME_T frame_type, size_t array_size); // simulate the neural network
+        void getNpuBaseAddr();
+
+        // Npu simulator per layer
+        int neuralnet_read_sim(NeuralNetwork net, int fidx, int curlayer);
+        int neuralnet_write_sim(NeuralNetwork net, int fidx, int curlayer);
+
+        // HEVC decoder simulator
         int decoder_sim(); // simulate hevc decoder
+
+        // Storage system (L1 & L2 cache, DRAM)
         void l1_cache_sim();  // simulate L1 cache
         void l2_cache_sim();  // simulate L2 cache
-        void controller();    // main controller of npusim
-        // dramsim
 		void add_pending(Transaction *t, uint64_t cycle);
 		void read_complete(unsigned id, uint64_t address, uint64_t done_cycle);
 		void write_complete(unsigned id, uint64_t address, uint64_t done_cycle);
-        // generate DAG
-        void decode_order();
-        // test
-        void test();
-        void init();
+
+        void test(int height);
+
+    public:
+        Npusim();        
+        void init(string ibpPath, string bFname, string pFname, string mvsFname, string iFname);
+        void controller();    // Simulator controller
 };

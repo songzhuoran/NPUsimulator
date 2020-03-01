@@ -2,7 +2,9 @@
 
 #include <string>
 #include <algorithm>
-#include "mv_fifo.h"
+#include <vector>
+#include <map>
+#include "mvFifo.h"
 using namespace std;
 
 class Dram_Info{
@@ -19,28 +21,19 @@ string bin2hex(const string& bin);
 
 class Request{
     public:
-        Request(Mv_Fifo_Item mv_fifo_item, Dram_Info dram_info);
-        int operator==(Mv_Fifo_Item temp_mv_fifo_item);
-        Mv_Fifo_Item _mv_fifo_item;
-        string _Dram_addr;
-};
-
-class Dram_Request{
-    public:
-        Dram_Request();
-        void init_DRAM_Request(string Dram_addr);
-        string _Dram_addr;
+        Request(Mv_Fifo_Item _orimv){ 
+            _remain_num = 0;
+            _ori_mv_item = _orimv;
+        }
+        Mv_Fifo_Item _ori_mv_item;  // original mv_item without aligning
+        vector<pair<Mv_Fifo_Item, int> > _mv_fifo_items;
+        int _remain_num;
 };
 
 class L2_Request{
     public:
         L2_Request(Mv_Fifo_Item mv_fifo_item, int start_cycle);
-        Mv_Fifo_Item _mv_fifo_item;
+        Mv_Fifo_Item _ori_mv_item;
+        vector<Mv_Fifo_Item> _mv_fifo_items;
         int _return_cycle;
 };
-
-
-
-
-
-

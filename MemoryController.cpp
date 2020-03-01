@@ -180,7 +180,7 @@ void MemoryController::update()
 			//inform upper levels that a write is done
 			if (parentMemorySystem->WriteDataDone!=NULL)
 			{
-				cout<<"WRITE DATA BACK, curCC = "<<currentClockCycle<<endl;
+				// cout<<"WRITE DATA BACK, curCC = "<<currentClockCycle<<endl;
 				(*parentMemorySystem->WriteDataDone)(parentMemorySystem->systemID,outgoingDataPacket->physicalAddress, currentClockCycle);
 			}
 
@@ -461,8 +461,7 @@ void MemoryController::update()
 
 	for (size_t i=0;i<transactionQueue.size();i++)
 	{
-		//pop off top transaction from queue
-		//
+		//  pop off top transaction from queue
 		//	assuming simple scheduling at the moment
 		//	will eventually add policies here
 		Transaction *transaction = transactionQueue[i];
@@ -501,7 +500,6 @@ void MemoryController::update()
 
 			//now that we know there is room in the command queue, we can remove from the transaction queue
 			transactionQueue.erase(transactionQueue.begin()+i);
-
 			//create activate command to the row we just translated
 			BusPacket *ACTcommand = new BusPacket(ACTIVATE, transaction->address,
 					newTransactionColumn, newTransactionRow, newTransactionRank,
@@ -536,7 +534,7 @@ void MemoryController::update()
 		}
 		else // no room, do nothing this cycle
 		{
-			//PRINT( "== Warning - No room in command queue" << endl;
+			PRINT( "== Warning - No room in command queue");
 		}
 	}
 
