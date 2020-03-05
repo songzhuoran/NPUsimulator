@@ -7,7 +7,7 @@ Dram_Info::Dram_Info(int idx, int x, int y){
     _y = y;
 }
 
-L2_Request::L2_Request(Mv_Fifo_Item mv_fifo_item, int start_cycle){
+L2_Request::L2_Request(Mv_Fifo_Item mv_fifo_item, uint64_t start_cycle){
     _ori_mv_item._b_idx = mv_fifo_item._b_idx;
     _ori_mv_item._width = mv_fifo_item._width;
     _ori_mv_item._height = mv_fifo_item._height;

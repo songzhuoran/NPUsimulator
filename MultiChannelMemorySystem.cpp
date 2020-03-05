@@ -75,6 +75,8 @@ void MultiChannelMemorySystem::setCPUClockSpeed(uint64_t cpuClkFreqHz)
 {
 
 	uint64_t dramsimClkFreqHz = (uint64_t)(1.0/(tCK*1e-9));
+	// uint64_t dramsimClkFreqHz = (uint64_t)(0.2*1e9);
+	// cpuClkFreqHz = (uint64_t)(1.0/(tCK*1e-9));
 	clockDomainCrosser.clock1 = dramsimClkFreqHz; 
 	clockDomainCrosser.clock2 = (cpuClkFreqHz == 0) ? dramsimClkFreqHz : cpuClkFreqHz; 
 }
@@ -341,6 +343,7 @@ void MultiChannelMemorySystem::update()
 }
 void MultiChannelMemorySystem::actual_update() 
 {
+	
 	if (currentClockCycle == 0)
 	{
 		InitOutputFiles(traceFilename);
@@ -349,6 +352,7 @@ void MultiChannelMemorySystem::actual_update()
 
 	if (currentClockCycle % EPOCH_LENGTH == 0)
 	{
+		// cout<<"hello"<<endl;
 		(*csvOut) << "ms" <<currentClockCycle * tCK * 1E-6; 
 		for (size_t i=0; i<NUM_CHANS; i++)
 		{
@@ -363,7 +367,7 @@ void MultiChannelMemorySystem::actual_update()
 	}
 
 
-	currentClockCycle++; 
+	currentClockCycle = currentClockCycle+1; 
 }
 unsigned MultiChannelMemorySystem::findChannelNumber(uint64_t addr)
 {

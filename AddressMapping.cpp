@@ -1,6 +1,7 @@
 
 #include "SystemConfiguration.h"
 #include "AddressMapping.h"
+#include<iostream>
 
 namespace DRAMSim
 {
@@ -95,26 +96,43 @@ void addressMapping(uint64_t physicalAddress, unsigned &newTransactionChan, unsi
 		physicalAddress = physicalAddress >> rankBitWidth;
 		tempB = physicalAddress << rankBitWidth;
 		newTransactionRank = tempA ^ tempB;
+		// std::cout<<"tempA = "<<tempA<<std::endl;
+		// std::cout<<"tempB = "<<tempB<<std::endl;
+		// std::cout<<"newTransactionRank = "<<newTransactionRank<<std::endl;
+		// std::cout<<"rankBitWidth = "<<rankBitWidth<<std::endl;
+		
 
 		tempA = physicalAddress;
 		physicalAddress = physicalAddress >> bankBitWidth;
 		tempB = physicalAddress << bankBitWidth;
 		newTransactionBank = tempA ^ tempB;
+		// std::cout<<"tempA = "<<tempA<<std::endl;
+		// std::cout<<"tempB = "<<tempB<<std::endl;
+		// std::cout<<"newTransactionBank = "<<newTransactionBank<<std::endl;
 
 		tempA = physicalAddress;
 		physicalAddress = physicalAddress >> colHighBitWidth;
 		tempB = physicalAddress << colHighBitWidth;
 		newTransactionColumn = tempA ^ tempB;
+		// std::cout<<"tempA = "<<tempA<<std::endl;
+		// std::cout<<"tempB = "<<tempB<<std::endl;
+		// std::cout<<"newTransactionColumn = "<<newTransactionColumn<<std::endl;
 
 		tempA = physicalAddress;
 		physicalAddress = physicalAddress >> rowBitWidth;
 		tempB = physicalAddress << rowBitWidth;
 		newTransactionRow = tempA ^ tempB;
+		// std::cout<<"tempA = "<<tempA<<std::endl;
+		// std::cout<<"tempB = "<<tempB<<std::endl;
+		// std::cout<<"newTransactionRow = "<<newTransactionRow<<std::endl;
 
 		tempA = physicalAddress;
 		physicalAddress = physicalAddress >> channelBitWidth;
 		tempB = physicalAddress << channelBitWidth;
 		newTransactionChan = tempA ^ tempB;
+		// std::cout<<"tempA = "<<tempA<<std::endl;
+		// std::cout<<"tempB = "<<tempB<<std::endl;
+		// std::cout<<"newTransactionChan = "<<newTransactionChan<<std::endl;
 
 	}
 	else if (addressMappingScheme == Scheme3)

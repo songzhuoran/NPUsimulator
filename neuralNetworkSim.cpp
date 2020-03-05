@@ -58,6 +58,7 @@ void NeuralNetwork::init(NnType t){
         macsNum = npuConfig["LARGENET_MAC_NUM"];
         wFifoSize = npuConfig["LARGENET_WEIGHT_FIFO"];
         unifiedBufferSize = npuConfig["LARGENET_UNIFIED_BUFFER"];
+        cout<<"layersNum = "<<layersNum<<endl;
 
         ifstream archFile("./ini/largeNnConfig.csv", ios::in);  
         string lineStr;
@@ -101,6 +102,7 @@ int NeuralNetwork::calcTransPerLayer(int curLayer, NpuIOType io_t){
     int s_weight = thisLayer.weights;  // size of weights
     int s_input  = thisLayer.inputs;   // size of inputs
     int s_output = thisLayer.outputs;  // size of outputs
+    // cout<<"current layer = "<<curLayer<<", s_weight = "<<s_weight<<", s_input"<<s_input<<", s_output= "<<s_output<<endl;
     int transNum;
     if(io_t == READ_WEIGHTS){      
         // 64 Bytes/Transaction, load weights per layer from dram
@@ -142,8 +144,8 @@ int NeuralNetwork::calcTransPerLayer(int curLayer, NpuIOType io_t){
     return transNum;
 }
 
-long long NeuralNetwork::getExeCyclesPerLayer(int curLayer){
+uint64_t NeuralNetwork::getExeCyclesPerLayer(int curLayer){
     NeuralNetLayer thisLayer = netArch[curLayer];
-    long long computeNums = thisLayer.computations;
+    uint64_t computeNums = thisLayer.computations;
     return computeNums / macsNum;
 }

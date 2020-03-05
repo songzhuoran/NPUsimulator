@@ -253,6 +253,7 @@ void MemoryController::update()
 	//function returns true if there is something valid in poppedBusPacket
 	if (commandQueue.pop(&poppedBusPacket))
 	{
+		// cout<<"currentClockCycle = "<<currentClockCycle<<endl;
 		if (poppedBusPacket->busPacketType == WRITE || poppedBusPacket->busPacketType == WRITE_P)
 		{
 
@@ -289,8 +290,11 @@ void MemoryController::update()
 				}
 				else if (poppedBusPacket->busPacketType == READ)
 				{
+					// cout<<"currentClockCycle = "<<currentClockCycle<<endl;
+					// cout<<"READ: nextPrecharge = "<<bankStates[rank][bank].nextPrecharge<<endl;
 					bankStates[rank][bank].nextPrecharge = max(currentClockCycle + READ_TO_PRE_DELAY,
 							bankStates[rank][bank].nextPrecharge);
+					// cout<<"READ: nextPrecharge = "<<bankStates[rank][bank].nextPrecharge<<endl;
 					bankStates[rank][bank].lastCommand = READ;
 
 				}
@@ -305,13 +309,16 @@ void MemoryController::update()
 							if (bankStates[i][j].currentBankState == RowActive)
 							{
 								bankStates[i][j].nextRead = max(currentClockCycle + BL/2 + tRTRS, bankStates[i][j].nextRead);
+								// cout<<"bankStates[i][j].nextRead = "<<bankStates[i][j].nextRead<<endl;
 								bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 										bankStates[i][j].nextWrite);
 							}
 						}
 						else
 						{
+							// cout<<"poppedBusPacket->rank = "<<poppedBusPacket->rank<<endl;
 							bankStates[i][j].nextRead = max(currentClockCycle + max(tCCD, BL/2), bankStates[i][j].nextRead);
+							// cout<<"bankStates[i][j].nextRead = "<<bankStates[i][j].nextRead<<endl;
 							bankStates[i][j].nextWrite = max(currentClockCycle + READ_TO_WRITE_DELAY,
 									bankStates[i][j].nextWrite);
 						}
@@ -324,6 +331,7 @@ void MemoryController::update()
 					//  being issued (in cq.isIssuable())before the bank state has been changed because of the
 					//  auto-precharge associated with this command
 					bankStates[rank][bank].nextRead = bankStates[rank][bank].nextActivate;
+					// cout<<"Read_P: bankStates[rank][bank].nextRead = "<<bankStates[rank][bank].nextRead<<endl;
 					bankStates[rank][bank].nextWrite = bankStates[rank][bank].nextActivate;
 				}
 
@@ -396,11 +404,16 @@ void MemoryController::update()
 				bankStates[rank][bank].lastCommand = ACTIVATE;
 				bankStates[rank][bank].openRowAddress = poppedBusPacket->row;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRC, bankStates[rank][bank].nextActivate);
+				// cout<<"Activate: nextActivate = "<<bankStates[rank][bank].nextActivate<<endl;
 				bankStates[rank][bank].nextPrecharge = max(currentClockCycle + tRAS, bankStates[rank][bank].nextPrecharge);
+				// cout<<"currentClockCycle = "<<currentClockCycle<<endl;
+				// cout<<"Activate: nextPrecharge = "<<bankStates[rank][bank].nextPrecharge<<endl;
 
 				//if we are using posted-CAS, the next column access can be sooner than normal operation
 
 				bankStates[rank][bank].nextRead = max(currentClockCycle + (tRCD-AL), bankStates[rank][bank].nextRead);
+				// cout<<"currentClockCycle = "<<currentClockCycle<<endl;
+				// cout<<"Activate: bankStates[rank][bank].nextRead = "<<bankStates[rank][bank].nextRead<<endl;
 				bankStates[rank][bank].nextWrite = max(currentClockCycle + (tRCD-AL), bankStates[rank][bank].nextWrite);
 
 				for (size_t i=0;i<NUM_BANKS;i++)
@@ -408,6 +421,7 @@ void MemoryController::update()
 					if (i!=poppedBusPacket->bank)
 					{
 						bankStates[rank][i].nextActivate = max(currentClockCycle + tRRD, bankStates[rank][i].nextActivate);
+						// cout<<"If-else: nextActivate = "<<bankStates[rank][i].nextActivate<<endl;
 					}
 				}
 
@@ -417,6 +431,7 @@ void MemoryController::update()
 				bankStates[rank][bank].lastCommand = PRECHARGE;
 				bankStates[rank][bank].stateChangeCountdown = tRP;
 				bankStates[rank][bank].nextActivate = max(currentClockCycle + tRP, bankStates[rank][bank].nextActivate);
+				// cout<<"Prechage: nextActivate = "<<bankStates[rank][bank].nextActivate<<endl;
 
 				break;
 			case REFRESH:
@@ -430,6 +445,7 @@ void MemoryController::update()
 				for (size_t i=0;i<NUM_BANKS;i++)
 				{
 					bankStates[rank][i].nextActivate = currentClockCycle + tRFC;
+					// cout<<"Refresh: nextActivate = "<<bankStates[rank][i].nextActivate<<endl;
 					bankStates[rank][i].currentBankState = Refreshing;
 					bankStates[rank][i].lastCommand = REFRESH;
 					bankStates[rank][i].stateChangeCountdown = tRFC;
@@ -580,6 +596,7 @@ void MemoryController::update()
 				{
 					bankStates[i][j].currentBankState = Idle;
 					bankStates[i][j].nextActivate = currentClockCycle + tXP;
+					// cout<<"use-low-power: nextActivate = "<<bankStates[i][j].nextActivate<<endl;
 				}
 			}
 		}

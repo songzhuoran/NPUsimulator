@@ -52,7 +52,7 @@ public:
     int getLayersNum();
     NnType getNetType();
     int calcTransPerLayer(int curLayer, NpuIOType io_t);
-    long long getExeCyclesPerLayer(int curLayer);
+    uint64_t getExeCyclesPerLayer(int curLayer);
 };
 
 // class NetworkLabel{

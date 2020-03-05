@@ -177,6 +177,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 						if (packet->row == bankStates[refreshRank][b].openRowAddress &&
 								packet->bank == b)
 						{
+							// cout<<"180: currentClockCycle = "<<currentClockCycle<<endl;
 							if (packet->busPacketType != ACTIVATE && isIssuable(packet))
 							{
 								*busPacket = packet;
@@ -232,6 +233,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 						//search from beginning to find first issuable bus packet
 						for (size_t i=0;i<queue.size();i++)
 						{
+							// cout<<"236: currentClockCycle = "<<currentClockCycle<<endl;
 							if (isIssuable(queue[i]))
 							{
 								//check to make sure we aren't removing a read/write that is paired with an activate
@@ -248,6 +250,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 					}
 					else
 					{
+						// cout<<"253: currentClockCycle = "<<currentClockCycle<<endl;
 						if (isIssuable(queue[0]))
 						{
 
@@ -317,6 +320,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 							{
 								closeRow = false;
 								// . . . and can be issued . . .
+								// cout<<"323: currentClockCycle = "<<currentClockCycle<<endl;
 								if (isIssuable(packet))
 								{
 									//send it out
@@ -379,6 +383,8 @@ bool CommandQueue::pop(BusPacket **busPacket)
 					for (size_t i=0;i<queue.size();i++)
 					{
 						BusPacket *packet = queue[i];
+						// cout<<"386: currentClockCycle = "<<currentClockCycle<<endl;
+						// cout<<"isIssuable(packet) = "<<isIssuable(packet)<<endl;
 						if (isIssuable(packet))
 						{
 							//check for dependencies
@@ -447,6 +453,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 
 			//if nothing was issuable, see if we can issue a PRE to an open bank
 			//	that has no other commands waiting
+			// cout<<"foundIssuable = "<<foundIssuable<<endl;
 			if (!foundIssuable)
 			{
 				//search for banks to close
@@ -477,6 +484,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 						{
 							if (currentClockCycle >= bankStates[nextRankPRE][nextBankPRE].nextPrecharge)
 							{
+								// cout<<"Commond Queue: nextPrecharge = "<<bankStates[nextRankPRE][nextBankPRE].nextPrecharge<<endl;
 								sendingPRE = true;
 								rowAccessCounters[nextRankPRE][nextBankPRE] = 0;
 								*busPacket = new BusPacket(PRECHARGE, 0, 0, 0, nextRankPRE, nextBankPRE, 0, dramsim_log);
@@ -489,6 +497,9 @@ bool CommandQueue::pop(BusPacket **busPacket)
 				while (!(startingRank == nextRankPRE && startingBank == nextBankPRE));
 
 				//if no PREs could be sent, just return false
+				
+				// cout<<"===========hello=========="<<endl;
+				// cout<<"sendingPRE = "<<sendingPRE<<endl;
 				if (!sendingPRE) return false;
 			}
 		}
@@ -514,6 +525,7 @@ bool CommandQueue::pop(BusPacket **busPacket)
 		tFAWCountdown[(*busPacket)->rank].push_back(tFAW);
 	}
 
+	// cout<<"hello!!!!!!!!"<<endl;
 	return true;
 }
 
@@ -593,11 +605,17 @@ bool CommandQueue::isIssuable(BusPacket *busPacket)
 
 		break;
 	case ACTIVATE:
+		// cout<<"===activate==="<<endl;
+		// cout<<"currentClockCycle = "<<currentClockCycle<<endl;
+		// cout<<"nextActivate = "<<bankStates[busPacket->rank][busPacket->bank].nextActivate<<endl;
+		// cout<<"is idle or refreshing? "<<bankStates[busPacket->rank][busPacket->bank].currentBankState<<endl;
+		// cout<<"size = "<<tFAWCountdown[busPacket->rank].size()<<endl;
 		if ((bankStates[busPacket->rank][busPacket->bank].currentBankState == Idle ||
 		        bankStates[busPacket->rank][busPacket->bank].currentBankState == Refreshing) &&
 		        currentClockCycle >= bankStates[busPacket->rank][busPacket->bank].nextActivate &&
 		        tFAWCountdown[busPacket->rank].size() < 4)
 		{
+			
 			return true;
 		}
 		else
@@ -621,6 +639,7 @@ bool CommandQueue::isIssuable(BusPacket *busPacket)
 		break;
 	case READ_P:
 	case READ:
+		// cout<<"====Read==="<<endl;
 		if (bankStates[busPacket->rank][busPacket->bank].currentBankState == RowActive &&
 		        currentClockCycle >= bankStates[busPacket->rank][busPacket->bank].nextRead &&
 		        busPacket->row == bankStates[busPacket->rank][busPacket->bank].openRowAddress &&

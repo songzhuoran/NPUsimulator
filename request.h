@@ -4,8 +4,11 @@
 #include <algorithm>
 #include <vector>
 #include <map>
+#include<stdint.h>
 #include "mvFifo.h"
 using namespace std;
+
+// typedef long long uint64_t;
 
 class Dram_Info{
     public:
@@ -32,8 +35,8 @@ class Request{
 
 class L2_Request{
     public:
-        L2_Request(Mv_Fifo_Item mv_fifo_item, int start_cycle);
+        L2_Request(Mv_Fifo_Item mv_fifo_item, uint64_t start_cycle);
         Mv_Fifo_Item _ori_mv_item;
         vector<Mv_Fifo_Item> _mv_fifo_items;
-        int _return_cycle;
+        uint64_t _return_cycle;
 };

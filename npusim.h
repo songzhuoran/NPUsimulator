@@ -10,6 +10,7 @@
 #include <queue>
 #include <map>
 #include <list>
+#
 
 #include "SystemConfiguration.h"
 #include "MemorySystem.h"
@@ -39,7 +40,7 @@ class Graph {
 
 class Npusim {
     private:
-        int systimer;  // system timer, original name: total_cycle
+        uint64_t systimer;  // system timer, original name: total_cycle
         int numFrames; // num of frames
         bool mvFifoTraversalLabel;
         FRAME_T frame_type_maptab[MAX_SIZE_OF_FTMTAB]; // frame type mapping table
@@ -67,9 +68,9 @@ class Npusim {
         uint64_t latency;
         
         // Shifter
-        queue<pair<Mv_Fifo_Item, int> > q_shifter;  // pair<Mv_Fifo_Item, finish_time>
+        queue<pair<Mv_Fifo_Item, uint64_t> > q_shifter;  // pair<Mv_Fifo_Item, finish_time>
         vector<Mv_Fifo_Item> mappedBuffer;
-        queue<pair<Mv_Fifo_Item, int> > q_postMappedBuffer;
+        queue<pair<Mv_Fifo_Item, uint64_t> > q_postMappedBuffer;
         map<int, list<uint64_t> > pendingWriteReqList;
         
         NeuralNetwork largeNet, smallNet;
@@ -100,14 +101,23 @@ class Npusim {
         // Storage system (L1 & L2 cache, DRAM)
         void l1_cache_sim();  // simulate L1 cache
         void l2_cache_sim();  // simulate L2 cache
+        void mapping();
+        void lnn_execute();
+        void snn_execute();
+        void decode_execute();
 		void add_pending(Transaction *t, uint64_t cycle);
 		void read_complete(unsigned id, uint64_t address, uint64_t done_cycle);
 		void write_complete(unsigned id, uint64_t address, uint64_t done_cycle);
 
-        void test(int height);
+        uint64_t smallNNTimer;
+        int blayer;
+        uint64_t largeNNTimer;
+        int iplayer;
 
     public:
-        Npusim();        
+        Npusim();   
+        void test();   
+        void test_v2();   
         void init(string ibpPath, string bFname, string pFname, string mvsFname, string iFname);
         void controller();    // Simulator controller
 };

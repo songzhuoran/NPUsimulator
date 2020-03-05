@@ -5,7 +5,6 @@ int l1HitCnt = 0, l2HitCnt = 0, mergeAccessCnt = 0;
 
 //test
 bool isReadcallback = false;
-bool is_flag = false;
 
 // init Npusim
 Npusim::Npusim(){
@@ -26,14 +25,8 @@ Npusim::Npusim(){
 	memorySystem->RegisterCallbacks(read_cb, write_cb, NULL);
     trans = NULL;
     mvFifoTraversalLabel = true;
-    // cout<<"=================28================"<<endl;
     largeNet.init(LNN_T);    // init large npu
     smallNet.init(SNN_T);    // init small npu
-    smallNNTimer = 0;
-    blayer = 0;
-    largeNNTimer = 0;
-    iplayer = 0;
-    // cout<<"==============35==================="<<endl;
 }
 
 // path - common path(e.g. "/home/liuxueyuan/npusim"), b/p_fname - b/p file path(e.g. "b/test" or "p/test") 
@@ -45,8 +38,7 @@ void Npusim::load_ibp_label(string path, string b_fname, string p_fname, string 
     string b_elem, p_elem;
     int cntb = 0, cntp = 0, cnti = 0; // calc num of b/p/i frames
     while (getline(b_inFile, b_elem)){
-        // frame_type_maptab[atoi(b_elem.c_str())-1] = B_FRAME;
-        frame_type_maptab[atoi(b_elem.c_str())-1] = B_FRAME; //baseline
+        frame_type_maptab[atoi(b_elem.c_str())-1] = B_FRAME;
         cntb++;
     }
     if(!i_fname.empty()){
@@ -79,7 +71,6 @@ void Npusim::load_ibp_label(string path, string b_fname, string p_fname, string 
     numFrames = cntb + cntp + cnti;
     frameValidBuffer.assign(numFrames, 0);
     frameMcValid.assign(numFrames, 0);
-    // frameMcValid.assign(numFrames, 1); //to test the NN stall influence
 }
 
 // load b-frame motion vectors(load mv_table from ffmpeg)
@@ -143,7 +134,12 @@ void Npusim::decode_order(){
             }
             else{
                 order[t] = i;
-                Decode_IP_frame_idx.push(i);
+                if(frame_type_maptab[i] == B_FRAME){
+                    Decode_B_frame_idx.push_back(i);
+                }
+                else{
+                    Decode_IP_frame_idx.push(i);
+                }
                 for(int h = 0; h < numFrames; h++){
                     graph.arc[h][i] = 0;
                 }
@@ -227,17 +223,11 @@ void Npusim::getNpuBaseAddr(){
 
 void Npusim::init(string ibpPath, string bFname, string pFname, string mvsFname, string iFname=""){
     load_ibp_label(ibpPath, bFname, pFname, iFname);
-    // cout<<"load_ibp_label"<<endl;
     load_mvs(mvsFname);
-    // cout<<"load_mvs"<<endl;
-    decode_order();
-    // cout<<"decode_order"<<endl;
     getNpuBaseAddr();
-    // cout<<"getNpuBaseAddr"<<endl;
+    decode_order();
     sort_mvs();
-    // cout<<"sort_mvs"<<endl;
     judge_bid_pred();
-    // cout<<"judge_bid_pred"<<endl;
 }
 
 // simulate the neural network
@@ -261,33 +251,30 @@ int Npusim::neuralnet_read_sim(NeuralNetwork net, int fidx, int curlayer){
         }
     }
     int iTransNum = net.calcTransPerLayer(curlayer, READ_INPUTS);
-    // iTransNum = 0; //to test if input dominant
     uint64_t iAddr = netType == LNN_T ? lnnRWStartAddr + net.outputAddrOffset[net.netArch[curlayer].dependency] : snnRWStartAddr + net.outputAddrOffset[net.netArch[curlayer].dependency];
     
-    for(int i = 0; i < iTransNum; ++i){
+    for(int i = 0; i <= iTransNum; ++i){
         iAddr += 64;
         trans = new Transaction(DATA_READ, iAddr, NULL);
         if((*memorySystem).addTransaction(false, iAddr)){
             add_pending(trans, systimer);
             if(netType == LNN_T){
-                pendingLnnReadPerLayer.push_back(iAddr);
+                pendingLnnReadPerLayer.push_back(wAddr);
             }
             else{
-                pendingSnnReadPerLayer.push_back(iAddr);
+                pendingSnnReadPerLayer.push_back(wAddr);
             }
             trans = NULL;
         }
     }
-    cout<<"current layer = "<<curlayer<<endl;
-    cout<<"wTransNum = "<<wTransNum<<", iTransNum = "<<iTransNum<<endl;
 }
 
 int Npusim::neuralnet_write_sim(NeuralNetwork net, int fidx, int curlayer){
     NnType netType = net.getNetType();
     int rTransNum = net.calcTransPerLayer(curlayer, WRITE_OUTPUTS);
-    // cout<<", rTransNum = "<<rTransNum<<endl;
     uint64_t oAddr = netType == LNN_T ? lnnRWStartAddr + net.outputAddrOffset[curlayer] : snnRWStartAddr + net.outputAddrOffset[curlayer];
-    for(int i = 0; i < rTransNum; ++i){
+    for(int i = 0; i <= rTransNum; ++i){
+        oAddr += 64;
         trans = new Transaction(DATA_WRITE, oAddr, NULL);
         if((*memorySystem).addTransaction(true, oAddr)){
             add_pending(trans, systimer);
@@ -296,7 +283,6 @@ int Npusim::neuralnet_write_sim(NeuralNetwork net, int fidx, int curlayer){
             else pendingSnnWritePerFrame.push_back(oAddr);
             trans = NULL;
         }
-        oAddr += 64;
     }
 }
 
@@ -428,8 +414,6 @@ void Npusim::read_complete(unsigned id, uint64_t address, uint64_t done_cycle)
 
 void Npusim::write_complete(unsigned id, uint64_t address, uint64_t done_cycle)
 {
-    // cout<<"================current layer==================="<<endl;
-    // cout<<blayer<<endl;
 	map<uint64_t, list<uint64_t> >::iterator it;
 	it = pendingWriteRequests.find(address); 
 	if (it == pendingWriteRequests.end())
@@ -457,12 +441,11 @@ void Npusim::write_complete(unsigned id, uint64_t address, uint64_t done_cycle)
 	cout << "Write Callback: "<< addrStr << " latency="<<latency<<"cycles ("<< added_cycle << "->"<<done_cycle<<")"<<endl;
 
     if(address >= snnRWStartAddr){
-        // is_flag = true;
         // small npu write callback
         for(list<uint64_t>::iterator it = pendingSnnWritePerFrame.begin(); it != pendingSnnWritePerFrame.end(); it++){
             if(*it == address){
                 it = pendingSnnWritePerFrame.erase(it);
-                if(pendingSnnWritePerFrame.empty()&&blayer>=(smallNet.getLayersNum()-1)){
+                if(pendingSnnWritePerFrame.empty()){
                     isSmallNetOk = true;
                 }
                 break;
@@ -474,7 +457,7 @@ void Npusim::write_complete(unsigned id, uint64_t address, uint64_t done_cycle)
         for(list<uint64_t>::iterator it = pendingLnnWritePerFrame.begin(); it != pendingLnnWritePerFrame.end(); it++){
             if(*it == address){
                 it = pendingLnnWritePerFrame.erase(it);
-                if(pendingLnnWritePerFrame.empty()&&iplayer>=(largeNet.getLayersNum()-1)){
+                if(pendingLnnWritePerFrame.empty()){
                     isLargeNetOk = true;
                 }
                 break;
@@ -482,7 +465,6 @@ void Npusim::write_complete(unsigned id, uint64_t address, uint64_t done_cycle)
         }
     }
     else{
-        // is_flag = true;
         // cache write request callback.
         // judge if motion compensation(MC) is complete
         for(map<int, list<uint64_t> >::iterator it = pendingWriteReqList.begin(); it != pendingWriteReqList.end();){
@@ -503,7 +485,6 @@ void Npusim::write_complete(unsigned id, uint64_t address, uint64_t done_cycle)
             }
         }
     }
-    // cout<<"is_flag = "<<is_flag<<endl;
 }
 
 // simulate L1 cache
@@ -640,237 +621,256 @@ void Npusim::l2_cache_sim(){ //simulate the L2 cache hit and miss
     (*memorySystem).update();
 }
 
+void Npusim::controller(){
+    int largeNNTimer = 0, smallNNTimer = 0;  // Name Used Before: temp_large_NN, temp_small_NN
+    int decodeTimer = 0;                     // Name Used Before: temp_decode
+    int curBframe = -1, i_curBframe = 0;
+    int iplayer = 0, blayer = 0;
+    uint64_t tmp_ipDecodedFramesAddr = ipDecodedFramesAddr;
+    uint64_t tmp_bMcFramesAddr = bMcFramesAddr;
+    while(!Decode_B_frame_idx.empty() || !ipNnList.empty()){
+        systimer++;    // system clock move forward
 
-void Npusim::mapping(){
-    if(!q_postMappedBuffer.empty()){
-        if(systimer >= q_postMappedBuffer.front().second){
-            int bidx = q_postMappedBuffer.front().first._b_idx;
-            blkInBframe[bidx]--;
-            q_postMappedBuffer.pop();
-            if(blkInBframe[bidx] == 0){
-                frameMcValid[bidx] = 1;
+        // process I/P frames
+        if(!Decode_IP_frame_idx.empty()){
+            // decode i/p frames
+            decodeTimer++;
+            if(decodeTimer >= decoder_sim()){
+                int ipIdx = Decode_IP_frame_idx.front();
+                ipNnList.push(ipIdx);
+                Decode_IP_frame_idx.pop();
+                decodeTimer = 0;
             }
         }
-    }
+        if(!ipNnList.empty()){
+            int ipIdx = ipNnList.front();
+            if(!isLargeNetStart){
+                largeNNTimer++;
+                isLargeNetStart = true;
+                // send write and read reqs at 0 layers
+                int wTransNum = largeNet.calcTransPerLayer(iplayer, READ_WEIGHTS);
+                uint64_t wAddr = lnnWeightStartAddr;
+                for(int i = 0; i < wTransNum; i++){
+                    wAddr += 64;
+                    trans = new Transaction(DATA_READ, wAddr, NULL);
+                    if((*memorySystem).addTransaction(false, wAddr)){
+                        add_pending(trans, systimer);
+                        pendingLnnReadPerLayer.push_back(wAddr);
+                        trans = NULL;
+                    }
+                }
+                int iTransNum = largeNet.calcTransPerLayer(iplayer, READ_INPUTS);
+                for(int i = 1; i <= iTransNum; i++){
+                    trans = new Transaction(DATA_READ, tmp_ipDecodedFramesAddr, NULL);
+                    if((*memorySystem).addTransaction(false, tmp_ipDecodedFramesAddr)){
+                        add_pending(trans, systimer);
+                        pendingLnnReadPerLayer.push_back(tmp_ipDecodedFramesAddr);
+                        trans = NULL;
+                    }
+                    tmp_ipDecodedFramesAddr += 64;
+                }
+                neuralnet_write_sim(largeNet, ipIdx, iplayer);
+            }
+            else{
+                if(isLargeNetOk){
+                    // this frame is complete
+                    cout<<(frame_type_maptab[ipIdx]==P_FRAME?"P Frame: ":"I Frame: ")<<ipIdx<<" neural network completed. Current clock cycle: "<<systimer<<endl;
+                    for(int i = 0; i < frameWidth + 10; i += 32) {
+                        for(int j = 0; j < frameHeight; j += 8) {
+                            Dram_Info ipDramInfo(ipIdx, i, j);
+                            string s_ipDramReq = bin2hex(generate_dram_addr(ipDramInfo)).substr(2);
+                            uint64_t ipDramAddr;
+                            istringstream iss(s_ipDramReq);
+                            iss >> hex >> ipDramAddr;
+                            trans = new Transaction(DATA_WRITE, ipDramAddr, NULL);
+                            if((*memorySystem).addTransaction(true, ipDramAddr)){
+                                add_pending(trans, systimer);
+                                pendingWriteReqList[ipIdx].push_back(ipDramAddr);
+                                trans = NULL;
+                            }
+                        }
+                    }
+                    ipNnList.pop();
+                    isLargeNetStart = false;
+                    isLargeNetOk = false;
+                    iplayer = 0;
+                }
+                else{
+                    largeNNTimer++;
+                    if(largeNNTimer >= largeNet.getExeCyclesPerLayer(iplayer) && isLnnLayerOk){
+                        // This layer of neural network is done, the next layer can be start.
+                        iplayer++;
+                        neuralnet_read_sim(largeNet, ipIdx, iplayer);
+                        neuralnet_write_sim(largeNet, ipIdx, iplayer);
+                        largeNNTimer = 0;
+                        isLnnLayerOk = false;
+                    }
+                }
+            }
+        }
 
-    if(!q_shifter.empty()){
-        if(systimer >= q_shifter.front().second){
-            Mv_Fifo_Item mp_item = q_shifter.front().first;
-            if(mp_item.isBidPredFrame){
-                // 双向预测帧
-                bool isExist = false;
-                for(vector<Mv_Fifo_Item>::iterator it = mappedBuffer.begin(); it != mappedBuffer.end();){
-                    if(it->_b_idx == mp_item._b_idx && it->_src_x == mp_item._src_x && it->_src_y == mp_item._src_y){
-                        isExist = true;
-                        it = mappedBuffer.erase(it);
-                        q_postMappedBuffer.push(make_pair(mp_item, systimer+POST_MPBCALC_CYCLE));
+        // process B frames
+        if (!Decode_B_frame_idx.empty()) {
+            if(curBframe == -1){
+                for(vector<int>::iterator it=Decode_B_frame_idx.begin(); it!=Decode_B_frame_idx.end(); it++){
+                    if(frameMcValid[*it]){
+                        curBframe = *it;
+                        i_curBframe = it - Decode_B_frame_idx.begin();
+                        smallNNTimer++;
                         break;
                     }
-                    else it++;
                 }
-                if(!isExist){
-                    mappedBuffer.push_back(q_shifter.front().first);
-                }
-            }
-            else{
-                q_postMappedBuffer.push(make_pair(mp_item, systimer+POST_MPBCALC_CYCLE));
-            }
-            q_shifter.pop();
-        }
-    }
-    l2_cache_sim();
-    
-    l1_cache_sim();
-}
-
-void Npusim::lnn_execute(){
-    int ipIdx = ipNnList.front();
-    uint64_t tmp_ipDecodedFramesAddr = ipDecodedFramesAddr;
-    if(!isSmallNetStart){
-        if(!isLargeNetStart){
-            largeNNTimer++;
-            isLargeNetStart = true;
-            // send write and read reqs at 0 layers
-            int wTransNum = largeNet.calcTransPerLayer(iplayer, READ_WEIGHTS);
-            uint64_t wAddr = lnnWeightStartAddr;
-            for(int i = 0; i < wTransNum; i++){
-                wAddr += 64;
-                trans = new Transaction(DATA_READ, wAddr, NULL);
-                if((*memorySystem).addTransaction(false, wAddr)){
-                    add_pending(trans, systimer);
-                    pendingLnnReadPerLayer.push_back(wAddr);
-                    trans = NULL;
-                }
-            }
-            int iTransNum = largeNet.calcTransPerLayer(iplayer, READ_INPUTS);
-            // cout<<"iTransNum = "<<iTransNum*64<<endl;
-            // cout<<"ipDecodedFramesAddr = "<<ipDecodedFramesAddr<<endl;
-            // cout<<"bMcFramesAddr = "<<bMcFramesAddr<<endl;
-            for(int i = 1; i <= iTransNum; i++){
-                trans = new Transaction(DATA_READ, tmp_ipDecodedFramesAddr, NULL);
-                if((*memorySystem).addTransaction(false, tmp_ipDecodedFramesAddr)){
-                    add_pending(trans, systimer);
-                    pendingLnnReadPerLayer.push_back(tmp_ipDecodedFramesAddr);
-                    trans = NULL;
-                }
-                if(tmp_ipDecodedFramesAddr>bMcFramesAddr){
-                    cout<<"tmp_ipDecodedFramesAddr = "<<tmp_ipDecodedFramesAddr<<endl;
-                    cout<<"current trans = "<<i<<endl;
-                    break;
-                }
-                tmp_ipDecodedFramesAddr += 64;
-            }
-            neuralnet_write_sim(largeNet, ipIdx, iplayer);
-        }
-        else{
-            if(isLargeNetOk){
-                // this frame is complete
-                cout<<(frame_type_maptab[ipIdx]==P_FRAME?"P Frame: ":"I Frame: ")<<ipIdx<<" neural network completed. Current clock cycle: "<<systimer<<endl;
-                for(int i = 0; i < frameWidth + 10; i += 32) {
-                    for(int j = 0; j < frameHeight; j += 8) {
-                        Dram_Info ipDramInfo(ipIdx, i, j);
-                        string s_ipDramReq = bin2hex(generate_dram_addr(ipDramInfo)).substr(2);
-                        uint64_t ipDramAddr;
-                        istringstream iss(s_ipDramReq);
-                        iss >> hex >> ipDramAddr;
-                        trans = new Transaction(DATA_WRITE, ipDramAddr, NULL);
-                        if((*memorySystem).addTransaction(true, ipDramAddr)){
-                            add_pending(trans, systimer);
-                            pendingWriteReqList[ipIdx].push_back(ipDramAddr);
-                            trans = NULL;
-                        }
-                    }
-                }
-                ipNnList.pop();
-                isLargeNetStart = false;
-                isLargeNetOk = false;
-                isLnnLayerOk = false;
-                iplayer = 0;
-            }
-            else{
-                largeNNTimer++;
-                // cout<<"isLnnLayerOk = "<<isLnnLayerOk<<endl;
-                if(largeNNTimer >= largeNet.getExeCyclesPerLayer(iplayer) && isLnnLayerOk && iplayer<largeNet.getLayersNum()-1){
-                    // This layer of neural network is done, the next layer can be start.
-                    iplayer++;
-                    neuralnet_read_sim(largeNet, ipIdx, iplayer);
-                    neuralnet_write_sim(largeNet, ipIdx, iplayer);
-                    largeNNTimer = 0;
-                    isLnnLayerOk = false;
-                }
-            }
-        }
-    }   
-}
-
-void Npusim::snn_execute(){
-    int ipIdx = ipNnList.front();
-    uint64_t tmp_bMcFramesAddr = bMcFramesAddr;
-    if(frameMcValid[ipIdx]&&!isLargeNetStart){
-        if(!isSmallNetStart){
-            smallNNTimer++;
-            isSmallNetStart = true;
-            // send write and read requests at 0 layer
-            int wTransNum = smallNet.calcTransPerLayer(blayer, READ_WEIGHTS);
-            uint64_t wAddr = snnWeightStartAddr;
-            for(int i = 0; i < wTransNum; i++){
-                wAddr += 64;
-                trans = new Transaction(DATA_READ, wAddr, NULL);
-                if((*memorySystem).addTransaction(false, wAddr)){
-                    add_pending(trans, systimer);
-                    pendingSnnReadPerLayer.push_back(wAddr);
-                    trans = NULL;
-                }
-            }
-            int iTransNum = smallNet.calcTransPerLayer(blayer, READ_INPUTS);
-            // iTransNum = 0; //to test if input dominant
-            // cout<<"current layer = "<<blayer<<endl;
-            // cout<<"wTransNum = "<<wTransNum<<", iTransNum = "<<iTransNum;
-            for(int i = 1; i <= iTransNum; i++){
-                trans = new Transaction(DATA_READ, tmp_bMcFramesAddr, NULL);
-                if((*memorySystem).addTransaction(false, tmp_bMcFramesAddr)){
-                    add_pending(trans, systimer);
-                    pendingSnnReadPerLayer.push_back(tmp_bMcFramesAddr);
-                    trans = NULL;
-                }
-                tmp_bMcFramesAddr += 64;
-            }
-            neuralnet_write_sim(smallNet, ipIdx, blayer);
-        }
-        else{
-            if(isSmallNetOk){
-                cout<<"B Frame: "<<ipIdx<<" neural network completed. Current clock cycle: "<<systimer<<endl;
-                for(int i = 0; i < frameWidth+10; i += 32){
-                    for(int j = 0; j < frameHeight; j += 8){
-                        Dram_Info bDramInfo(ipIdx, i, j);
-                        string s_bDramReq = bin2hex(generate_dram_addr(bDramInfo)).substr(2);
-                        uint64_t bDramAddr;
-                        istringstream iss(s_bDramReq);
-                        iss >> hex >> bDramAddr;
-                        trans = new Transaction(DATA_WRITE, bDramAddr, NULL);
-                        if((*memorySystem).addTransaction(true, bDramAddr)){
-                            add_pending(trans, systimer);
-                            pendingWriteReqList[ipIdx].push_back(bDramAddr);
-                            trans = NULL;
-                        }
-                    }
-                }
-                ipNnList.pop();
-                isSmallNetStart = false;
-                isSmallNetOk = false;
-                blayer = 0;
             }
             else{
                 smallNNTimer++;
-                if(smallNNTimer >= smallNet.getExeCyclesPerLayer(blayer) && isSnnLayerOk && blayer<smallNet.getLayersNum()-1){
-                    blayer++;
-                    neuralnet_read_sim(smallNet, ipIdx, blayer);
-                    neuralnet_write_sim(smallNet, ipIdx, blayer);
-                    smallNNTimer = 0;
-                    isSnnLayerOk = false;
+                if(!isSmallNetStart){
+                    smallNNTimer++;
+                    isSmallNetStart = true;
+                    // send write and read requests at 0 layer
+                    int wTransNum = smallNet.calcTransPerLayer(blayer, READ_WEIGHTS);
+                    uint64_t wAddr = snnWeightStartAddr;
+                    for(int i = 0; i < wTransNum; i++){
+                        wAddr += 64;
+                        trans = new Transaction(DATA_READ, wAddr, NULL);
+                        if((*memorySystem).addTransaction(false, wAddr)){
+                            add_pending(trans, systimer);
+                            pendingLnnReadPerLayer.push_back(wAddr);
+                            trans = NULL;
+                        }
+                    }
+                    int iTransNum = smallNet.calcTransPerLayer(blayer, READ_INPUTS);
+                    for(int i = 1; i <= iTransNum; i++){
+                        trans = new Transaction(DATA_READ, tmp_bMcFramesAddr, NULL);
+                        if((*memorySystem).addTransaction(false, tmp_bMcFramesAddr)){
+                            add_pending(trans, systimer);
+                            pendingLnnReadPerLayer.push_back(tmp_bMcFramesAddr);
+                            trans = NULL;
+                        }
+                        tmp_bMcFramesAddr += 64;
+                    }
+                    neuralnet_write_sim(smallNet, curBframe, blayer);
+                }
+                else{
+                    if(isSmallNetOk){
+                        cout<<"B Frame: "<<curBframe<<" neural network completed. Current clock cycle: "<<systimer<<endl;
+                        for(int i = 0; i < frameWidth+10; i += 32){
+                            for(int j = 0; j < frameHeight; j += 8){
+                                Dram_Info bDramInfo(curBframe, i, j);
+                                string s_bDramReq = bin2hex(generate_dram_addr(bDramInfo)).substr(2);
+                                uint64_t bDramAddr;
+                                istringstream iss(s_bDramReq);
+                                iss >> hex >> bDramAddr;
+                                trans = new Transaction(DATA_WRITE, bDramAddr, NULL);
+                                if((*memorySystem).addTransaction(true, bDramAddr)){
+                                    add_pending(trans, systimer);
+                                    pendingWriteReqList[curBframe].push_back(bDramAddr);
+                                    trans = NULL;
+                                }
+                            }
+                        }
+                        Decode_B_frame_idx.erase(Decode_B_frame_idx.begin() + i_curBframe);
+                        curBframe = -1;
+                        isSmallNetStart = false;
+                        isSmallNetOk = false;
+                        blayer = 0;
+                    }
+                    else{
+                        smallNNTimer++;
+                        if(smallNNTimer >= smallNet.getExeCyclesPerLayer(blayer) && isSnnLayerOk){
+                            blayer++;
+                            neuralnet_read_sim(smallNet, curBframe, blayer);
+                            neuralnet_write_sim(smallNet, curBframe, blayer);
+                            smallNNTimer = 0;
+                            isSnnLayerOk = false;
+                        }
+                    }
                 }
             }
-        }
-    }
-}
+            
+            // execute MC process, update frameMcValid
+            if(!q_postMappedBuffer.empty()){
+                if(systimer >= q_postMappedBuffer.front().second){
+                    int bidx = q_postMappedBuffer.front().first._b_idx;
+                    blkInBframe[bidx]--;
+                    q_postMappedBuffer.pop();
+                    if(blkInBframe[bidx] == 0){
+                        frameMcValid[bidx] = 1;
+                    }
+                }
+            }
 
-void Npusim::decode_execute(){
-    int decodeTimer = 0; 
-    decodeTimer++;
-    if(decodeTimer >= decoder_sim()){
-        int ipIdx = Decode_IP_frame_idx.front();
-        ipNnList.push(ipIdx);
-        Decode_IP_frame_idx.pop();
-        decodeTimer = 0;
-    }   
-}
-
-void Npusim::controller(){
-    while(!Decode_IP_frame_idx.empty()||!ipNnList.empty()){
-        systimer++;
-        // decode I, B and P frames
-        if(!Decode_IP_frame_idx.empty()){
-            // decode i/p frames
-            decode_execute();
+            if(!q_shifter.empty()){
+                if(systimer >= q_shifter.front().second){
+                    Mv_Fifo_Item mp_item = q_shifter.front().first;
+                    if(mp_item.isBidPredFrame){
+                        // 双向预测帧
+                        bool isExist = false;
+                        for(vector<Mv_Fifo_Item>::iterator it = mappedBuffer.begin(); it != mappedBuffer.end();){
+                            if(it->_b_idx == mp_item._b_idx && it->_src_x == mp_item._src_x && it->_src_y == mp_item._src_y){
+                                isExist = true;
+                                it = mappedBuffer.erase(it);
+                                q_postMappedBuffer.push(make_pair(mp_item, systimer+POST_MPBCALC_CYCLE));
+                                break;
+                            }
+                            else it++;
+                        }
+                        if(!isExist){
+                            mappedBuffer.push_back(q_shifter.front().first);
+                        }
+                    }
+                    else{
+                        q_postMappedBuffer.push(make_pair(mp_item, systimer+POST_MPBCALC_CYCLE));
+                    }
+                    q_shifter.pop();
+                }
+            }
+            // if(systimer%5==0){
+            //     l2_cache_sim();
+            //     l1_cache_sim();
+            // }
+            l2_cache_sim();
+            
+            l1_cache_sim();
+            
         }
-        // cout<<"ipNnList size = "<<ipNnList.size()<<endl;
-        int ipIdx = ipNnList.front();
-        if(frame_type_maptab[ipIdx]==P_FRAME||frame_type_maptab[ipIdx]==I_FRAME){//I or P frame
-            // lnn_execute(); 
-            ipNnList.pop(); //to pop the I and P frame
-            frameValidBuffer[ipIdx] = 1; //to make mapping execute normal
-        }
-        else{//B frame
-            snn_execute();  
-        }
-        mapping(); // execute MC process, update frameMcValid
-        // (*memorySystem).update();
-        
     }
     cout<<"Controller finished. Simulation time-consuming: "<<systimer<<endl;
     cout<<"L1 cache hits: "<<l1HitCnt<<", L2 cache hits: "<<l2HitCnt<<", Merge Access: "<<mergeAccessCnt<<endl;
 }
 
+void Npusim::test(){
+    uint64_t dram_addr = 0;
+    trans = new Transaction(DATA_READ, dram_addr, NULL);
+    if((*memorySystem).addTransaction(false, dram_addr)){
+        add_pending(trans, systimer);
+        trans = NULL;
+    }
+    delete trans;
+    dram_addr = 100;
+    trans = new Transaction(DATA_READ, dram_addr, NULL);
+    if((*memorySystem).addTransaction(false, dram_addr)){
+        add_pending(trans, systimer);
+        trans = NULL;
+    }
+    delete trans;
+    dram_addr = 35679;
+    trans = new Transaction(DATA_READ, dram_addr, NULL);
+    if((*memorySystem).addTransaction(false, dram_addr)){
+        add_pending(trans, systimer);
+        trans = NULL;
+    }
+    delete trans;
+    dram_addr = 38982321;
+    trans = new Transaction(DATA_WRITE, dram_addr, NULL);
+    if((*memorySystem).addTransaction(true, dram_addr)){
+        add_pending(trans, systimer);
+        trans = NULL;
+    }
+    while (1)
+    {
+        (*memorySystem).update();
+    }
+}
 
 void Npusim::test_v2(){
     for(int i = 0; i < 100; i++){
@@ -896,7 +896,6 @@ void Npusim::test_v2(){
 
 int main(int argc, char* argv[]){
     Npusim npu;
-    // cout<<"npu================"<<endl;
     string bpath = "b/", ppath = "p/", mvpath = "./mvs/";
     bpath.append(argv[1]), ppath.append(argv[1]), mvpath.append(argv[1]);
     mvpath += ".csv";
